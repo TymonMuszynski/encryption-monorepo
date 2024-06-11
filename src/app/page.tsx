@@ -1,113 +1,224 @@
-import Image from "next/image";
+"use client"
+import {ArrowDownCircleIcon, PhotoIcon} from '@heroicons/react/24/solid'
+import {
+  useEffect,
+  useState
+} from "react";
+import KeyField from "@/components/KeyField";
+import readFileAsText from "@/server/readFileAsText";
+import postFile from "@/server/postFile";
+import Link from "next/link";
+
+
+const types: Type[] = ["CTR", "CBC", "ECB"];
+const modes: Mode[] = ["encrypt", "decrypt"];
 
 export default function Home() {
+  const [cypherKey, setCypherKey] = useState('0123456789ABCDEF');
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [type, setType] = useState<Type>("CTR");
+  const [mode, setMode] = useState<Mode>("encrypt");
+
+  const [responseFiles, setResponseFiles] = useState<UploadedFile[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [fileLinks, setFileLinks] = useState<ResponseFiles>([]);
+
+
+  useEffect(() => {
+
+    // Generate links for each file in responseFiles
+    const links: ResponseFiles = responseFiles.map((file: any, index:number) => {
+      const blob = new Blob([file.res], {type: 'text/plain'});
+      const url = URL.createObjectURL(blob);
+      return {name: file.name, url};
+    });
+    setFileLinks(links);
+
+    return () => {
+      links.forEach((link: { url: string; }) => URL.revokeObjectURL(link.url));
+    };
+  }, [responseFiles]);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    e.preventDefault();
+    const fileList = e.target.files;
+    if (fileList) {
+      const files = Array.from(fileList);
+      const newFiles: UploadedFile[] = [];
+      for (const file of files) {
+        try {
+          const text = await readFileAsText(file);
+          newFiles.push({
+            name: file.name,
+            size: file.size,
+            text: text
+          });
+        } catch (error) {
+          throw new Error(`Failed to read file: ${file.name}`)
+        }
+      }
+      setUploadedFiles(prevFiles => [...prevFiles, ...newFiles]);
+    }
+  }
+
+  async function handleSubmit() {
+    if (uploadedFiles.length === 0){
+      setError("Please upload a file");
+      return;
+    }
+    if(cypherKey === "") {
+      setError("Key is required");
+      return;
+    }
+    if(cypherKey.length !== 16) {
+      setError("Key must be 16 bytes long");
+      return;
+    }
+
+    try {
+      const response = await Promise.all(uploadedFiles.map(file => postFile(cypherKey, type, mode, file)));
+      console.log(response)
+      setResponseFiles(response);
+    } catch (error) {
+      setError(error as string);
+      return;
+    }
+    setError(null);
+  }
+
+  function handleKeyChange (e: React.ChangeEvent<HTMLInputElement>) {
+    e.preventDefault();
+    setCypherKey(e.target.value);
+  }
+
+  function handleCancel() {
+    setCypherKey("0123456789ABCDEF");
+    setUploadedFiles([]);
+    setMode("encrypt");
+    setType("CTR");
+    setError(null);
+    setResponseFiles([]);
+    setFileLinks([])
+  }
+
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">src/app/page.tsx</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:size-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
-        </div>
+      <div className="max-w-4xl mx-auto px-8 py-8">
+        <h1 className="text-5xl font-bold">
+          Szyfrowanie i <br/> Deszyfrowanie plików
+        </h1>
+        <form action={handleSubmit} className="bg-gray-50 p-4 rounded-lg mt-10">
+          <div className="space-y-12">
+            <div className="border-b border-gray-900/10 pb-12">
+              <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-6">
+                <KeyField cypherKey={cypherKey} handleKeyChange={handleKeyChange}/>
+                <div className="sm:col-span-3">
+                  <label htmlFor="location" className="block text-sm font-medium leading-6 text-gray-900">
+                    Mode
+                  </label>
+                  <select
+                      id="mode"
+                      name="mode"
+                      onChange={(e) => setMode(e.target.value as Mode)}
+                      value={mode}
+                      className="mt-2 block w-full bg-transparent rounded-md border-0 py-1.5 pl-3 pr-10 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-green-600 sm:text-sm sm:leading-6"
+                  >
+                    {modes.map((mode, index) => (
+                        <option key={index}>{mode}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label htmlFor="location" className="block text-sm font-medium leading-6 text-gray-900">
+                    Type
+                  </label>
+                  <select
+                      id="type"
+                      name="type"
+                      value={type}
+                      onChange={(e) => setType(e.target.value as Type)}
+                      className="mt-2 block w-full rounded-md bg-transparent border-0 py-1.5 pl-3 pr-10 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-green-600 sm:text-sm sm:leading-6"
+                  >
+                    {types.map((type, index) => (
+                        <option key={index}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="col-span-full">
+                  <label htmlFor="cover-photo" className="block text-sm font-medium leading-6 text-gray-900">
+                    Files
+                  </label>
+                  <div
+                      className="mt-2 flex justify-center rounded-lg border border-dashed border-gray-900/25 px-6 py-10">
+                    <div className="text-center">
+                      <PhotoIcon className="mx-auto h-12 w-12 text-gray-300" aria-hidden="true"/>
+                      <div className="mt-4 flex text-sm leading-6 text-gray-600">
+                        <label
+                            htmlFor="file-upload"
+                            className="relative cursor-pointer rounded-md font-semibold text-green-600 focus-within:outline-none focus-within:ring-2 focus-within:ring-green-600 focus-within:ring-offset-2 hover:text-green-500"
+                        >
+                          <span>Upload a file</span>
+                          <input id="file-upload" name="file-upload" type="file" accept=".txt"
+                                 onChange={handleFileChange} multiple className="sr-only"/>
+                        </label>
+                        <p className="pl-1">or drag and drop</p>
+                      </div>
+                      <p className="text-xs leading-5 text-gray-600">.TXT</p>
+                    </div>
+                  </div>
+                  {uploadedFiles.length > 0 && (
+                      <div className="mt-4">
+                        <p className="font-semibold text-gray-700">Uploaded files:</p>
+                        <ul className="flex flex-col gap-y-5 mt-5">
+                          {uploadedFiles.map((file, index) => (
+                              <li key={index} className="flex justify-between items-center">
+                                <div>
+                                  <p>{file.name}</p>
+                                  <p className="text-xs leading-5 text-gray-600">{file.size} bytes</p>
+                                </div>
+                              </li>
+                          ))}
+                        </ul>
+                      </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-6 flex items-center justify-end gap-x-6">
+            <span className="text-red-500">{error}</span>
+            <button onClick={handleCancel} type="button" className="text-sm font-semibold leading-6 text-gray-900">
+              Restart Form
+            </button>
+            <button
+                type="submit"
+                className="rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600"
+            >
+              Upload
+            </button>
+          </div>
+        </form>
+        {fileLinks.length > 0 && (
+          <div className="bg-gray-50 p-4 rounded-lg mt-10">
+
+                <div className="mt-4">
+                  <p className="font-semibold text-gray-700">Download Converted files:</p>
+                  <ul className="flex flex-col gap-y-5 mt-5">
+                    {fileLinks.map((file: any, index: number) => (
+                        <li key={index} className="flex justify-start items-center gap-x-4">
+                          <ArrowDownCircleIcon className="h-6 w-6 text-green-600" aria-hidden="true"/>
+                          <Link download={file.url} href={file.url} target="_blank">
+                            <p>{file.name}</p>
+                          </Link>
+                        </li>
+                    ))}
+                  </ul>
+                </div>
+          </div>
+        )}
       </div>
 
-      <div className="relative z-[-1] flex place-items-center before:absolute before:h-[300px] before:w-full before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 sm:before:w-[480px] sm:after:w-[240px] before:lg:h-[360px]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-      </div>
-
-      <div className="mb-32 grid text-center lg:mb-0 lg:w-full lg:max-w-5xl lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Docs{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Learn{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Templates{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Explore starter templates for Next.js.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Deploy{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-balance text-sm opacity-50">
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
-    </main>
   );
 }
